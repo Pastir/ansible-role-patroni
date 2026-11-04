@@ -1,0 +1,74 @@
+---
+# Keep the running dynamic configuration (stored in etcd) equal to patroni_dcs.
+# bootstrap.dcs only matters for a brand-new cluster; afterwards the only way to
+# change pg_hba / cluster-wide parameters is PATCH /config.
+- name: Read the running dynamic configuration
+  ansible.builtin.uri:
+    url: "{{ __patroni_api_local }}/config"
+    validate_certs: "{{ patroni_restapi_validate_certs }}"
+    return_content: true
+  register: __patroni_dcs_current
+  check_mode: false
+  run_once: true
+  when: not ansible_check_mode or __patroni_was_running
+
+- name: Update the dynamic configuration
+  ansible.builtin.uri:
+    url: "{{ __patroni_api_local }}/config"
+    method: PATCH
+    body_format: json
+    body: "{{ patroni_dcs }}"
+    url_username: "{{ patroni_restapi_username if __patroni_api_auth else omit }}"
+    url_password: "{{ patroni_restapi_password if __patroni_api_auth else omit }}"
+    force_basic_auth: "{{ __patroni_api_auth }}"
+    validate_certs: "{{ patroni_restapi_validate_certs }}"
+  register: __patroni_dcs_patch
+  changed_when: true
+  run_once: true
+  no_log: false
+  when:
+    - __patroni_dcs_current.json is defined
+    - __patroni_dcs_current.json | patroni_dcs_differs(patroni_dcs)
+
+# Must run right here, before pending restarts are collected, so not a handler.
+- name: Let members pick up the new configuration  # noqa: no-handler
+  ansible.builtin.pause:
+    seconds: "{{ (patroni_dcs.loop_wait | default(10) | int) + 2 }}"
+  when: __patroni_dcs_patch is changed
+
+- name: Find members waiting for a restart
+  ansible.builtin.uri:
+    url: "{{ __patroni_api_local }}/patroni"
+    validate_certs: "{{ patroni_restapi_validate_certs }}"
+    return_content: true
+  register: __patroni_pending
+  check_mode: false
+  when: not ansible_check_mode or __patroni_was_running
+
+- name: Report members waiting for a restart
+  ansible.builtin.debug:
+    msg: >-
+      {{ patroni_name }} ({{ __patroni_pending.json.role }}) needs a restart to apply:
+      {{ __patroni_pending.json.pending_restart_reason | default({}) | list | join(', ') | default('parameters', true) }}.
+      Run "{{ __patroni_ctl }} restart {{ patroni_scope }} --pending" in a maintenance window
+      or set patroni_restart_pending: true.
+  when:
+    - __patroni_pending.json.pending_restart | default(false)
+    - not patroni_restart_pending
+
+# Replicas first, the leader last; one member at a time.
+- name: Restart pending members
+  ansible.builtin.command:
+    cmd: "{{ __patroni_ctl }} restart {{ patroni_scope }} {{ item }} --pending --force"
+  loop: >-
+    {{ groups[patroni_cluster_group]
+       | map('extract', hostvars)
+       | selectattr('__patroni_pending', 'defined')
+       | selectattr('__patroni_pending.json.pending_restart', 'defined')
+       | selectattr('__patroni_pending.json.pending_restart')
+       | sort(attribute='__patroni_pending.json.role', reverse=true)
+       | map(attribute='__patroni_pending.json.name')
+       | list }}
+  run_once: true
+  changed_when: true
+  when: patroni_restart_pending

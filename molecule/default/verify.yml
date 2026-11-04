@@ -1,0 +1,73 @@
+---
+- name: Verify cluster
+  hosts: all
+  become: true
+  tasks:
+    - name: Read cluster state
+      ansible.builtin.uri:
+        url: "http://{{ ansible_facts['default_ipv4']['address'] }}:8008/cluster"
+        return_content: true
+      register: __cluster
+      run_once: true
+
+    - name: One leader and two streaming replicas
+      ansible.builtin.assert:
+        that:
+          - __cluster.json.members | selectattr('role', 'equalto', 'leader') | list | length == 1
+          - __cluster.json.members | selectattr('role', 'equalto', 'replica') | selectattr('state', 'equalto', 'streaming') | list | length == 2
+      run_once: true
+
+    - name: Read dynamic configuration
+      ansible.builtin.uri:
+        url: "http://{{ ansible_facts['default_ipv4']['address'] }}:8008/config"
+        return_content: true
+      register: __config
+      run_once: true
+
+    - name: DCS was patched (value changed, key removed, pg_hba replaced)
+      ansible.builtin.assert:
+        that:
+          - __config.json.postgresql.parameters.work_mem == '32MB'
+          - "'wal_keep_size' not in __config.json.postgresql.parameters"
+          - __config.json.postgresql.pg_hba | length == 5
+      run_once: true
+
+    - name: Effective work_mem on every member
+      ansible.builtin.command: psql -XAtq -c "SHOW work_mem"
+      become: true
+      become_user: postgres
+      register: __work_mem
+      changed_when: false
+      failed_when: __work_mem.stdout != '32MB'
+
+    - name: Leader accepts writes
+      ansible.builtin.command: >-
+        psql -XAtq -c "CREATE TABLE IF NOT EXISTS molecule(x int); INSERT INTO molecule VALUES (1)"
+      become: true
+      become_user: postgres
+      changed_when: false
+      when: inventory_hostname == (__cluster.json.members | selectattr('role', 'equalto', 'leader') | first).name
+
+    - name: Replicas see the write
+      ansible.builtin.command: psql -XAtq -c "SELECT count(*) FROM molecule"
+      become: true
+      become_user: postgres
+      register: __read
+      until: __read.rc == 0 and __read.stdout | int > 0
+      retries: 10
+      delay: 2
+      changed_when: false
+
+    - name: No Debian-managed cluster runs on its own
+      ansible.builtin.shell: |
+        set -o pipefail
+        ! systemctl is-active --quiet postgresql@15-main
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Config file is private
+      ansible.builtin.stat:
+        path: /etc/patroni/config.yml
+      register: __cfg
+      failed_when: __cfg.stat.mode != '0600'

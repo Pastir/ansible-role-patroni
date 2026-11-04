@@ -1,0 +1,31 @@
+---
+__patroni_service: patroni
+__patroni_ctl: "patronictl -c {{ patroni_config_file }}"
+__patroni_api_local: "{{ patroni_restapi_scheme }}://{{ patroni_restapi_connect_address }}"
+__patroni_api_auth: "{{ patroni_restapi_username | length > 0 }}"
+
+__patroni_config_base:
+  scope: "{{ patroni_scope }}"
+  namespace: "{{ patroni_namespace }}"
+  name: "{{ patroni_name }}"
+  restapi: >-
+    {{ {'listen': patroni_restapi_listen, 'connect_address': patroni_restapi_connect_address}
+       | combine({'authentication': {'username': patroni_restapi_username, 'password': patroni_restapi_password}}
+                 if __patroni_api_auth else {})
+       | combine(patroni_restapi_extra) }}
+  etcd3: "{{ {'hosts': patroni_etcd_hosts | join(','), 'protocol': patroni_etcd_protocol} | combine(patroni_etcd_extra) }}"
+  bootstrap:
+    dcs: "{{ patroni_dcs | __patroni_strip_nulls }}"
+    initdb: "{{ patroni_initdb }}"
+  postgresql: >-
+    {{ {'listen': patroni_postgresql_listen,
+        'connect_address': patroni_postgresql_connect_address,
+        'data_dir': patroni_postgresql_data_dir,
+        'bin_dir': patroni_postgresql_bin_dir,
+        'authentication': patroni_postgresql_authentication}
+       | combine({'parameters': patroni_postgresql_parameters} if patroni_postgresql_parameters else {})
+       | combine(patroni_postgresql_extra, recursive=True) }}
+  watchdog: "{{ patroni_watchdog }}"
+  tags: "{{ patroni_tags }}"
+
+__patroni_config: "{{ __patroni_config_base | combine(patroni_config_overrides, recursive=True) }}"

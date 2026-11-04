@@ -1,0 +1,83 @@
+---
+- name: Gather installed packages
+  ansible.builtin.package_facts:
+    manager: apt
+
+- name: Refuse implicit Patroni version change
+  ansible.builtin.assert:
+    that:
+      - patroni_allow_upgrade or ansible_facts.packages['patroni'][0].version is match(patroni_version ~ '-')
+    fail_msg: >-
+      patroni {{ ansible_facts.packages['patroni'][0].version }} is installed but {{ patroni_version }} is required.
+      Re-run with -e patroni_allow_upgrade=true (Patroni restarts; PostgreSQL keeps running).
+    quiet: true
+  when:
+    - patroni_version | length > 0
+    - "'patroni' in ansible_facts.packages"
+
+- name: Install Patroni packages
+  ansible.builtin.apt:
+    name: "{{ patroni_packages | map('regex_replace', '^patroni$', 'patroni=' ~ patroni_version ~ '-*') | list
+              if patroni_version else patroni_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+    allow_change_held_packages: true
+  notify: Restart patroni
+
+- name: Hold Patroni package
+  ansible.builtin.dpkg_selections:
+    name: patroni
+    selection: hold
+  when: patroni_hold and not ansible_check_mode
+
+# Handlers (reload/restart) act only on members that were already running.
+- name: Gather service facts
+  ansible.builtin.service_facts:
+
+- name: Remember whether Patroni was running before this play
+  ansible.builtin.set_fact:
+    __patroni_was_running: "{{ (ansible_facts.services[__patroni_service ~ '.service'].state | default('')) == 'running' }}"
+
+- name: Watchdog support
+  when: patroni_watchdog.mode | default('off') | string | lower != 'off'
+  block:
+    - name: Load softdog when there is no hardware watchdog
+      community.general.modprobe:
+        name: softdog
+        state: present
+        persistent: present
+      when: patroni_watchdog_softdog
+
+    - name: Give the postgres user access to the watchdog device
+      ansible.builtin.copy:
+        dest: /etc/udev/rules.d/61-patroni-watchdog.rules
+        content: |
+          # Managed by Ansible (pastir.patroni), do not edit.
+          KERNEL=="watchdog", OWNER="{{ patroni_system_user }}", GROUP="{{ patroni_system_group }}", MODE="0600"
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Reload udev for watchdog
+
+- name: Find Debian cluster start.conf files
+  ansible.builtin.find:
+    paths: /etc/postgresql
+    patterns: start.conf
+    recurse: true
+  register: __patroni_start_confs
+  when: patroni_pg_start_conf_manual
+
+- name: Never start PostgreSQL behind Patroni's back (start.conf = manual)
+  ansible.builtin.copy:
+    dest: "{{ item.path }}"
+    content: |
+      # Managed by Ansible (pastir.patroni), do not edit.
+      # Managed by Patroni: systemd must not start this cluster.
+      manual
+    owner: "{{ patroni_system_user }}"
+    group: "{{ patroni_system_group }}"
+    mode: "0644"
+  loop: "{{ __patroni_start_confs.files | default([]) }}"
+  loop_control:
+    label: "{{ item.path }}"

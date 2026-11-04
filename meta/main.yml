@@ -1,0 +1,19 @@
+---
+galaxy_info:
+  author: Pastir Ivan
+  role_name: patroni
+  namespace: pastir
+  description: Deploy and operate a Patroni (etcd v3) PostgreSQL cluster safely on running systems
+  license: MIT-0
+  min_ansible_version: "2.16"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - noble
+        - resolute
+  galaxy_tags:
+    - patroni
+    - postgresql
+    - ha
+    - cluster
+dependencies: []

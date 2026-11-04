@@ -1,0 +1,38 @@
+---
+# Members that were not running are started in parallel. On a brand-new cluster the
+# first member to get the leader lock runs initdb, the others clone from it.
+- name: Enable and start Patroni
+  ansible.builtin.systemd_service:
+    name: "{{ __patroni_service }}"
+    enabled: "{{ patroni_service_enabled }}"
+    state: started
+    daemon_reload: "{{ not __patroni_was_running }}"
+
+- name: Apply configuration changes before checking the cluster
+  ansible.builtin.meta: flush_handlers
+
+- name: Wait until this member is running
+  ansible.builtin.uri:
+    url: "{{ __patroni_api_local }}/patroni"
+    validate_certs: "{{ patroni_restapi_validate_certs }}"
+    return_content: true
+  register: __patroni_member
+  until:
+    - __patroni_member.status | default(0) == 200
+    - __patroni_member.json.state | default('') in ['running', 'streaming']
+  retries: "{{ (patroni_wait_timeout | int / 5) | int }}"
+  delay: 5
+  check_mode: false
+  when: not ansible_check_mode or __patroni_was_running
+
+- name: Wait until the cluster has a leader
+  ansible.builtin.uri:
+    url: "{{ __patroni_api_local }}/cluster"
+    validate_certs: "{{ patroni_restapi_validate_certs }}"
+    return_content: true
+  register: __patroni_cluster
+  until: __patroni_cluster.json.members | default([]) | selectattr('role', 'in', ['leader', 'standby_leader']) | list | length == 1
+  retries: "{{ (patroni_wait_timeout | int / 5) | int }}"
+  delay: 5
+  check_mode: false
+  when: not ansible_check_mode or __patroni_was_running

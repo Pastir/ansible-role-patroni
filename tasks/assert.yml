@@ -1,0 +1,32 @@
+---
+- name: Check required settings
+  ansible.builtin.assert:
+    that:
+      - patroni_cluster_group in group_names
+      - patroni_scope | length > 0
+      - patroni_etcd_hosts | length > 0
+      - patroni_postgresql_authentication.superuser.username | default('') | length > 0
+      - patroni_postgresql_authentication.superuser.password | default('') | length > 0
+      - patroni_postgresql_authentication.replication.username | default('') | length > 0
+      - patroni_postgresql_authentication.replication.password | default('') | length > 0
+      - patroni_postgresql_authentication.rewind is not defined
+        or patroni_postgresql_authentication.rewind.password | default('') | length > 0
+      - patroni_watchdog.mode | default('off') | string | lower in ['off', 'automatic', 'required']
+      - patroni_restapi_password | length > 0 or patroni_restapi_username | length == 0
+    fail_msg: >-
+      Required: host in group '{{ patroni_cluster_group }}', patroni_scope, patroni_etcd_hosts,
+      superuser/replication username+password in patroni_postgresql_authentication (and rewind password if rewind is set),
+      watchdog mode off|automatic|required, a REST API password when a username is set.
+    quiet: true
+
+- name: Check that PostgreSQL binaries are installed
+  ansible.builtin.stat:
+    path: "{{ patroni_postgresql_bin_dir }}/postgres"
+  register: __patroni_pg_bin
+
+- name: Fail without PostgreSQL binaries
+  ansible.builtin.assert:
+    that: __patroni_pg_bin.stat.exists
+    fail_msg: "{{ patroni_postgresql_bin_dir }}/postgres not found. Install PostgreSQL first (e.g. pastir.postgresql)."
+    quiet: true
+  when: not ansible_check_mode

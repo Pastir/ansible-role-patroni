@@ -1,0 +1,50 @@
+---
+# Patroni re-reads its configuration on SIGHUP; PostgreSQL keeps running.
+- name: Reload patroni
+  ansible.builtin.systemd_service:
+    name: "{{ __patroni_service }}"
+    state: reloaded
+  throttle: 1
+  when: __patroni_was_running | default(false) | bool
+
+# Only needed after a Patroni package upgrade. A stopping Patroni normally shuts
+# PostgreSQL down (and the leader lock moves), so the cluster is put into
+# maintenance mode first: in pause Patroni leaves PostgreSQL running.
+- name: Pause cluster before restarting Patroni
+  ansible.builtin.command: "{{ __patroni_ctl }} pause --wait"
+  register: __patroni_pause
+  changed_when: __patroni_pause.rc == 0
+  failed_when: __patroni_pause.rc != 0 and 'already paused' not in (__patroni_pause.stderr + __patroni_pause.stdout)
+  run_once: true
+  listen: Restart patroni
+  when: __patroni_was_running | default(false) | bool
+
+- name: Restart Patroni process
+  ansible.builtin.systemd_service:
+    name: "{{ __patroni_service }}"
+    state: restarted
+  throttle: 1
+  listen: Restart patroni
+  when: __patroni_was_running | default(false) | bool
+
+- name: Wait for restarted Patroni
+  ansible.builtin.uri:
+    url: "{{ __patroni_api_local }}/patroni"
+    validate_certs: "{{ patroni_restapi_validate_certs }}"
+  register: __patroni_back
+  until: __patroni_back.status | default(0) == 200
+  retries: 60
+  delay: 2
+  listen: Restart patroni
+  when: __patroni_was_running | default(false) | bool
+
+- name: Resume cluster after restarting Patroni
+  ansible.builtin.command: "{{ __patroni_ctl }} resume --wait"
+  changed_when: true
+  run_once: true
+  listen: Restart patroni
+  when: __patroni_pause is changed
+
+- name: Reload udev for watchdog
+  ansible.builtin.command: udevadm trigger --subsystem-match=misc --action=change
+  changed_when: true

@@ -1,0 +1,21 @@
+---
+- name: Validate input
+  ansible.builtin.import_tasks: assert.yml
+  tags: [patroni, patroni_install, patroni_config]
+
+- name: Install Patroni
+  ansible.builtin.import_tasks: install.yml
+  tags: [patroni, patroni_install]
+
+- name: Configure Patroni
+  ansible.builtin.import_tasks: configure.yml
+  tags: [patroni, patroni_config]
+
+- name: Start Patroni and wait for the cluster
+  ansible.builtin.import_tasks: service.yml
+  tags: [patroni, patroni_install, patroni_config]
+
+- name: Sync dynamic configuration
+  ansible.builtin.import_tasks: dcs.yml
+  when: patroni_dcs_manage | bool
+  tags: [patroni, patroni_config, patroni_dcs]

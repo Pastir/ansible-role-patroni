@@ -1,0 +1,21 @@
+---
+- name: Create Patroni config directory
+  ansible.builtin.file:
+    path: "{{ patroni_config_dir }}"
+    state: directory
+    owner: "{{ patroni_system_user }}"
+    group: "{{ patroni_system_group }}"
+    mode: "0750"
+
+- name: Deploy Patroni configuration
+  ansible.builtin.template:
+    src: patroni.yml.j2
+    dest: "{{ patroni_config_file }}"
+    owner: "{{ patroni_system_user }}"
+    group: "{{ patroni_system_group }}"
+    mode: "0600"
+    # --ignore-listen-port: the ports are of course busy on a running node.
+    validate: /usr/bin/patroni --validate-config --ignore-listen-port %s
+  # The file contains passwords.
+  diff: false
+  notify: Reload patroni

@@ -1,0 +1,54 @@
+---
+# On the running cluster:
+#  - change a reloadable DCS parameter and pg_hba, delete a parameter (null) -> applied via PATCH, no restart;
+#  - change a restart-only parameter -> reported as pending, nothing restarted;
+#  - change a node-local setting (tags) -> Patroni reloaded, PostgreSQL keeps running, leader unchanged.
+- name: Change configuration of a running cluster
+  hosts: all
+  become: true
+  tasks:
+    - name: Remember leader and postmaster start time
+      ansible.builtin.uri:
+        url: "http://{{ ansible_facts['default_ipv4']['address'] }}:8008/patroni"
+        return_content: true
+      register: __before
+
+    - name: Apply changed configuration
+      ansible.builtin.include_role:
+        name: pastir.patroni
+      vars:
+        patroni_tags:
+          nofailover: false
+          molecule: changed
+        patroni_dcs:
+          ttl: 30
+          loop_wait: 10
+          retry_timeout: 10
+          maximum_lag_on_failover: 1048576
+          postgresql:
+            use_pg_rewind: true
+            use_slots: true
+            parameters:
+              max_connections: 150
+              work_mem: 32MB
+              wal_keep_size: null
+            pg_hba:
+              - local all all peer
+              - host all all 127.0.0.1/32 scram-sha-256
+              - host replication replicator 0.0.0.0/0 scram-sha-256
+              - host all all 10.0.0.0/8 scram-sha-256
+              - host all all 0.0.0.0/0 scram-sha-256
+
+    - name: Read member state after the change
+      ansible.builtin.uri:
+        url: "http://{{ ansible_facts['default_ipv4']['address'] }}:8008/patroni"
+        return_content: true
+      register: __after
+
+    - name: PostgreSQL was not restarted and roles did not change
+      ansible.builtin.assert:
+        that:
+          - __after.json.postmaster_start_time == __before.json.postmaster_start_time
+          - __after.json.role == __before.json.role
+          - __after.json.pending_restart | default(false)
+          - __after.json.tags.molecule == 'changed'

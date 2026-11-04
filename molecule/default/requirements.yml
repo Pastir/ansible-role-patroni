@@ -1,0 +1,9 @@
+---
+# Sibling roles used by this scenario (molecule dependency: galaxy).
+roles:
+  - name: pastir.etcd
+    src: git+git@github.com:Pastir/ansible-role-etcd.git
+    version: main
+  - name: pastir.postgresql
+    src: git+git@github.com:Pastir/ansible-role-postgresql.git
+    version: main

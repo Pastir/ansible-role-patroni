@@ -1,0 +1,22 @@
+# Ubuntu image with systemd as PID 1 for role testing.
+FROM {{ item.image }}
+ENV DEBIAN_FRONTEND=noninteractive container=podman
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends systemd systemd-sysv python3 python3-apt sudo \
+      ca-certificates curl gnupg iproute2 locales \
+ && locale-gen en_US.UTF-8 \
+ && apt-get clean \
+ && rm -f /lib/systemd/system/multi-user.target.wants/* /etc/systemd/system/*.wants/* \
+      /lib/systemd/system/local-fs.target.wants/* /lib/systemd/system/sockets.target.wants/*udev* \
+      /lib/systemd/system/sysinit.target.wants/systemd-tmpfiles-setup* /lib/systemd/system/getty.target
+# Rootless containers cannot set up the mount namespaces that hardened units ask for
+# (ProtectSystem=, PrivateTmp=...). Relax sandboxing for every service, test image only.
+RUN mkdir -p /etc/systemd/system/service.d && printf '%s\n' '[Service]' \
+      'ProtectSystem=no' 'ProtectHome=no' 'PrivateTmp=no' 'PrivateDevices=no' 'ProtectKernelTunables=no' \
+      'ProtectKernelModules=no' 'ProtectControlGroups=no' 'ProtectKernelLogs=no' 'ProtectClock=no' \
+      'ProtectHostname=no' 'ReadWritePaths=' 'ReadOnlyPaths=' 'InaccessiblePaths=' 'PrivateUsers=no' \
+      'RestrictNamespaces=no' 'MountAPIVFS=no' 'LockPersonality=no' 'MemoryDenyWriteExecute=no' \
+      'NoNewPrivileges=no' 'RestrictSUIDSGID=no' 'ProtectProc=default' 'ProcSubset=all' 'BindPaths=' 'BindReadOnlyPaths=' 'TemporaryFileSystem=' \
+      > /etc/systemd/system/service.d/90-molecule-no-sandbox.conf
+STOPSIGNAL SIGRTMIN+3
+CMD ["/lib/systemd/systemd"]

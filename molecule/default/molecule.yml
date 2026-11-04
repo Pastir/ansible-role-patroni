@@ -1,0 +1,85 @@
+---
+# Three nodes, each runs etcd + PostgreSQL + Patroni (sibling roles pastir.etcd and pastir.postgresql).
+dependency:
+  name: galaxy
+driver:
+  name: podman
+platforms:
+  - name: pg1-noble
+    image: docker.io/library/ubuntu:24.04
+    dockerfile: Dockerfile.j2
+    command: /lib/systemd/systemd
+    systemd: always
+    network: molecule-patroni
+    groups: [patroni, etcd]
+  - name: pg2-resolute
+    image: docker.io/library/ubuntu:26.04
+    dockerfile: Dockerfile.j2
+    command: /lib/systemd/systemd
+    systemd: always
+    network: molecule-patroni
+    groups: [patroni, etcd]
+  - name: pg3-noble
+    image: docker.io/library/ubuntu:24.04
+    dockerfile: Dockerfile.j2
+    command: /lib/systemd/systemd
+    systemd: always
+    network: molecule-patroni
+    groups: [patroni, etcd]
+provisioner:
+  name: ansible
+  inventory:
+    group_vars:
+      all:
+        etcd_initial_cluster_token: molecule-patroni
+        postgresql_version: "15"
+        postgresql_minor_version: "15.19"
+        postgresql_create_main_cluster: false
+        postgresql_start_conf: manual
+        postgresql_manage_service: false
+        patroni_scope: molecule
+        patroni_etcd_hosts: >-
+          {{ groups['etcd'] | map('extract', hostvars, ['ansible_facts', 'default_ipv4', 'address'])
+             | map('regex_replace', '$$', ':2379') | list }}
+        patroni_postgresql_listen: "0.0.0.0:5432"
+        patroni_restapi_username: patroni
+        patroni_restapi_password: "rest'pass#1"
+        patroni_postgresql_authentication:
+          superuser:
+            username: postgres
+            password: "super:pass'1"
+          replication:
+            username: replicator
+            password: "repl#pass\"1"
+          rewind:
+            username: rewind_user
+            password: "rewind pass 1"
+        patroni_dcs:
+          ttl: 30
+          loop_wait: 10
+          retry_timeout: 10
+          maximum_lag_on_failover: 1048576
+          postgresql:
+            use_pg_rewind: true
+            use_slots: true
+            parameters:
+              max_connections: 100
+              work_mem: 16MB
+              wal_keep_size: 128MB
+            pg_hba:
+              - local all all peer
+              - host all all 127.0.0.1/32 scram-sha-256
+              - host replication replicator 0.0.0.0/0 scram-sha-256
+              - host all all 0.0.0.0/0 scram-sha-256
+scenario:
+  test_sequence:
+    - dependency
+    - destroy
+    - create
+    - converge
+    - idempotence
+    - side_effect
+    - verify
+    - destroy
+verifier:
+  name: ansible

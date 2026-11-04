@@ -1,0 +1,116 @@
+---
+# --- Installation -------------------------------------------------------------
+# Packages come from the PGDG repository (add it first, e.g. with pastir.postgresql).
+patroni_version: "4.1.5"
+patroni_packages:
+  - patroni
+  - python3-etcd
+# Allow the role to change the installed Patroni version (restarts Patroni, not PostgreSQL).
+patroni_allow_upgrade: false
+# apt-mark hold the patroni package.
+patroni_hold: true
+
+# --- Files ----------------------------------------------------------------------
+patroni_config_dir: /etc/patroni
+patroni_config_file: "{{ patroni_config_dir }}/config.yml"
+patroni_system_user: postgres
+patroni_system_group: postgres
+
+# --- Cluster identity -------------------------------------------------------------
+# Inventory group with every member of this Patroni cluster.
+patroni_cluster_group: patroni
+# Cluster name (scope). Required.
+patroni_scope: ""
+patroni_namespace: /service
+# Member name, unique and stable.
+patroni_name: "{{ ansible_facts['hostname'] }}"
+# Address of this node used for connect addresses.
+patroni_address: "{{ ansible_facts['default_ipv4']['address'] }}"
+
+# --- REST API ---------------------------------------------------------------------
+patroni_restapi_port: 8008
+patroni_restapi_listen: "{{ patroni_address }}:{{ patroni_restapi_port }}"
+patroni_restapi_connect_address: "{{ patroni_address }}:{{ patroni_restapi_port }}"
+# Basic auth for unsafe REST endpoints (PATCH /config, restart...). Empty -> no auth.
+patroni_restapi_username: ""
+patroni_restapi_password: ""
+# Extra keys for the restapi section (certfile, keyfile, cafile, verify_client, allowlist...).
+patroni_restapi_extra: {}
+# URL scheme the role uses to talk to the REST API.
+patroni_restapi_scheme: "{{ 'https' if patroni_restapi_extra.certfile is defined else 'http' }}"
+patroni_restapi_validate_certs: true
+
+# --- DCS: etcd v3 -------------------------------------------------------------------
+# List of "host:port".
+patroni_etcd_hosts: []
+patroni_etcd_protocol: http
+# Extra keys for the etcd3 section (cacert, cert, key, username, password...).
+patroni_etcd_extra: {}
+
+# --- PostgreSQL ----------------------------------------------------------------------
+patroni_postgresql_version: "15"
+patroni_postgresql_port: 5432
+patroni_postgresql_listen: "{{ patroni_address }}:{{ patroni_postgresql_port }}"
+patroni_postgresql_connect_address: "{{ patroni_address }}:{{ patroni_postgresql_port }}"
+patroni_postgresql_data_dir: "/var/lib/postgresql/{{ patroni_postgresql_version }}/main"
+patroni_postgresql_bin_dir: "/usr/lib/postgresql/{{ patroni_postgresql_version }}/bin"
+# Connection settings of the Patroni users. Any libpq keys are allowed (sslmode, sslcert, sslkey, sslrootcert...).
+# superuser and replication are required; rewind is optional (used by pg_rewind).
+patroni_postgresql_authentication:
+  superuser:
+    username: postgres
+    password: ""
+  replication:
+    username: replicator
+    password: ""
+# Node-local postgresql.conf parameters (normally empty: cluster-wide ones belong to patroni_dcs).
+patroni_postgresql_parameters: {}
+# Any other keys for the postgresql section (pgpass, create_replica_methods, basebackup, callbacks...).
+patroni_postgresql_extra: {}
+
+# --- Dynamic (cluster-wide) configuration ---------------------------------------------
+# Used as bootstrap.dcs for a new cluster AND kept in sync on a running cluster
+# through PATCH /config (when patroni_dcs_manage is true).
+# To delete a key from the running configuration, set it to null.
+patroni_dcs:
+  ttl: 30
+  loop_wait: 10
+  retry_timeout: 10
+  maximum_lag_on_failover: 1048576
+  postgresql:
+    use_pg_rewind: true
+    use_slots: true
+    # parameters: {max_connections: 200, shared_buffers: 4GB, ...}
+    # pg_hba: ["local all all peer", "hostssl all all 0.0.0.0/0 scram-sha-256"]
+patroni_dcs_manage: true
+
+# initdb options for a brand-new cluster.
+patroni_initdb:
+  - encoding: UTF8
+  - locale: en_US.UTF-8
+  - data-checksums
+
+# --- Watchdog / tags ---------------------------------------------------------------------
+# mode: off | automatic | required. With automatic/required the role loads softdog
+# when no hardware watchdog is present and gives the postgres user access to the device.
+patroni_watchdog:
+  mode: "off"
+  device: /dev/watchdog
+  safety_margin: 5
+patroni_watchdog_softdog: true
+patroni_tags: {}
+
+# --- Anything else ----------------------------------------------------------------------
+# Deep-merged into the generated config last.
+patroni_config_overrides: {}
+
+# --- Operations ---------------------------------------------------------------------------
+# Set start.conf of every Debian cluster on the node to "manual" so systemd never
+# starts PostgreSQL behind Patroni's back.
+patroni_pg_start_conf_manual: true
+patroni_service_enabled: true
+# Restart members whose parameters are pending restart (one by one, leader last).
+# false -> only report them.
+patroni_restart_pending: false
+# Seconds to wait for a member / the cluster to become ready.
+patroni_wait_timeout: 600
