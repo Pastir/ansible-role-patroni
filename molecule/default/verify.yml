@@ -104,3 +104,21 @@
           - not __udev_rule.stat.exists
           - ((__patroni_cfg.content | b64decode | from_yaml).watchdog.mode | default('off') | string | lower)
             == ('automatic' if inventory_hostname == 'pg3-noble' else 'off')
+
+- name: Verify users and databases created on the leader
+  hosts: all
+  become: true
+  tasks:
+    - name: User app_user logs in to appdb on every member (replicated)
+      ansible.builtin.command: >-
+        psql -XAtq -h 127.0.0.1 -U app_user -d appdb
+        -c "SELECT pg_get_userbyid(datdba) || ',' || has_database_privilege('app_user', 'appdb', 'CREATE')
+        FROM pg_database WHERE datname = 'appdb'"
+      environment:
+        PGPASSWORD: "app'pass#1"
+      register: __login
+      until: __login.rc == 0
+      retries: 10
+      delay: 2
+      changed_when: false
+      failed_when: __login.stdout != 'app_user,true'

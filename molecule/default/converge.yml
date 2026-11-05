@@ -41,3 +41,33 @@
   roles:
     - role: pastir.postgresql
     - role: pastir.patroni
+
+# pastir.postgresql again, now with users/databases: Patroni is running, so the role finds the leader by
+# pg_is_in_recovery() and changes objects there only; replicas get them by replication.
+- name: Users and databases on the running cluster
+  hosts: all
+  become: true
+  tasks:
+    - name: Manage users and databases
+      ansible.builtin.include_role:
+        name: pastir.postgresql
+        tasks_from: objects.yml
+      vars:
+        postgresql_objects_wait_timeout: 120
+        postgresql_users:
+          - name: app_user
+            password: "app'pass#1"
+        postgresql_databases:
+          - name: appdb
+            owner: app_user
+        postgresql_privileges:
+          - database: appdb
+            roles: app_user
+            privs: CREATE
+
+    - name: Exactly one node managed objects, the others skipped them as replicas
+      ansible.builtin.assert:
+        that:
+          - ansible_play_hosts | map('extract', hostvars, '__postgresql_objects_primary') | map('bool') | select | list | length == 1
+          - (__postgresql_objects_primary | bool) == (__postgresql_objects_target | bool)
+        quiet: true
