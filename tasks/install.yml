@@ -58,6 +58,7 @@
         owner: root
         group: root
         mode: "0644"
+      when: patroni_watchdog_udev
       notify: Reload udev for watchdog
 
 - name: Find Debian cluster start.conf files
@@ -68,13 +69,14 @@
   register: __patroni_start_confs
   when: patroni_pg_start_conf_manual
 
+# Only the mode line is managed: the rest of the file (stock Debian comments) is kept,
+# and pastir.postgresql (postgresql_start_conf: manual) converges to the same content.
 - name: Never start PostgreSQL behind Patroni's back (start.conf = manual)
-  ansible.builtin.copy:
-    dest: "{{ item.path }}"
-    content: |
-      # Managed by Ansible (pastir.patroni), do not edit.
-      # Managed by Patroni: systemd must not start this cluster.
-      manual
+  ansible.builtin.lineinfile:
+    path: "{{ item.path }}"
+    regexp: '^\s*(auto|manual|disabled)\s*$'
+    line: manual
+    insertafter: EOF
     owner: "{{ patroni_system_user }}"
     group: "{{ patroni_system_group }}"
     mode: "0644"

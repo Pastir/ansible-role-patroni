@@ -1,8 +1,43 @@
 ---
-- name: Converge
+# Play 1 installs the packages. Play 2 adds a Debian-layout start.conf as left by pg_createcluster
+# on a server that ran PostgreSQL before Patroni (stock comments, "auto"), then runs pastir.postgresql
+# (postgresql_start_conf: manual) and pastir.patroni on the same file: both must converge to the
+# same content (idempotence) and keep the comments (verify).
+- name: Install etcd and PostgreSQL
   hosts: all
   become: true
   roles:
     - role: pastir.etcd
+    - role: pastir.postgresql
+
+- name: Patroni on a node with an existing Debian cluster directory
+  hosts: all
+  become: true
+  pre_tasks:
+    - name: Create the Debian cluster config directory
+      ansible.builtin.file:
+        path: /etc/postgresql/15/main
+        state: directory
+        owner: postgres
+        group: postgres
+        mode: "0755"
+
+    - name: Stock start.conf written by pg_createcluster (only if absent)
+      ansible.builtin.copy:
+        dest: /etc/postgresql/15/main/start.conf
+        force: false
+        owner: postgres
+        group: postgres
+        mode: "0644"
+        content: |
+          # Automatic startup configuration
+          #   auto: automatically start the cluster
+          #   manual: manual startup with pg_ctlcluster/postgresql@.service only
+          #   disabled: refuse to start cluster
+          # See pg_createcluster(1) for details. When running from systemd,
+          # invoke 'systemctl daemon-reload' after editing this file.
+
+          auto
+  roles:
     - role: pastir.postgresql
     - role: pastir.patroni

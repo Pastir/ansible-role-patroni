@@ -92,12 +92,16 @@ patroni_initdb:
 
 # --- Watchdog / tags ---------------------------------------------------------------------
 # mode: off | automatic | required. With automatic/required the role loads softdog
-# when no hardware watchdog is present and gives the postgres user access to the device.
+# (patroni_watchdog_softdog) and gives the postgres user access to the device (patroni_watchdog_udev).
 patroni_watchdog:
   mode: "off"
   device: /dev/watchdog
   safety_margin: 5
 patroni_watchdog_softdog: true
+# Write /etc/udev/rules.d/61-patroni-watchdog.rules (device owned by the postgres user) and run
+# "udevadm trigger". false -> the rule is neither created nor changed nor removed, udev is not triggered.
+# Independent of patroni_watchdog_softdog.
+patroni_watchdog_udev: true
 patroni_tags: {}
 
 # --- Anything else ----------------------------------------------------------------------
@@ -106,7 +110,8 @@ patroni_config_overrides: {}
 
 # --- Operations ---------------------------------------------------------------------------
 # Set start.conf of every Debian cluster on the node to "manual" so systemd never
-# starts PostgreSQL behind Patroni's back.
+# starts PostgreSQL behind Patroni's back. Only the mode line is changed, comments are kept.
+# If postgresql_start_conf (pastir.postgresql) is defined for the host, it must be "manual".
 patroni_pg_start_conf_manual: true
 patroni_service_enabled: true
 # Restart members whose parameters are pending restart (one by one, leader last).

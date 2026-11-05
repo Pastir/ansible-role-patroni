@@ -19,6 +19,19 @@
       watchdog mode off|automatic|required, a REST API password when a username is set.
     quiet: true
 
+# pastir.postgresql manages the same start.conf line: a different value would flip it on every run.
+- name: Check that pastir.postgresql agrees on start.conf
+  ansible.builtin.assert:
+    that: postgresql_start_conf == 'manual'
+    fail_msg: >-
+      postgresql_start_conf is "{{ postgresql_start_conf }}", but patroni_pg_start_conf_manual sets start.conf
+      to "manual": the two roles would rewrite the file on every run. Set postgresql_start_conf: manual on
+      Patroni nodes (or patroni_pg_start_conf_manual: false).
+    quiet: true
+  when:
+    - patroni_pg_start_conf_manual | bool
+    - postgresql_start_conf is defined
+
 - name: Check that PostgreSQL binaries are installed
   ansible.builtin.stat:
     path: "{{ patroni_postgresql_bin_dir }}/postgres"

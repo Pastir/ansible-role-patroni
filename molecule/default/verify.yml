@@ -71,3 +71,36 @@
         path: /etc/patroni/config.yml
       register: __cfg
       failed_when: __cfg.stat.mode != '0600'
+
+    - name: Read start.conf
+      ansible.builtin.slurp:
+        src: /etc/postgresql/15/main/start.conf
+      register: __start_conf
+
+    - name: The start.conf mode is manual and the stock comments are kept
+      vars:
+        __lines: "{{ (__start_conf.content | b64decode).splitlines() }}"
+      ansible.builtin.assert:
+        that:
+          - __lines | select('match', '^\\s*(auto|manual|disabled)\\s*$') | list == ['manual']
+          - "'# Automatic startup configuration' in __lines"
+          - "'#   manual: manual startup with pg_ctlcluster/postgresql@.service only' in __lines"
+          - "\"# invoke 'systemctl daemon-reload' after editing this file.\" in __lines"
+
+    - name: Read watchdog udev rule
+      ansible.builtin.stat:
+        path: /etc/udev/rules.d/61-patroni-watchdog.rules
+      register: __udev_rule
+
+    - name: Read rendered watchdog mode
+      ansible.builtin.slurp:
+        src: /etc/patroni/config.yml
+      register: __patroni_cfg
+
+    # pg3: watchdog automatic with patroni_watchdog_udev false -> no rule; pg1/pg2: watchdog off -> no rule.
+    - name: No udev rule without patroni_watchdog_udev / with watchdog off
+      ansible.builtin.assert:
+        that:
+          - not __udev_rule.stat.exists
+          - ((__patroni_cfg.content | b64decode | from_yaml).watchdog.mode | default('off') | string | lower)
+            == ('automatic' if inventory_hostname == 'pg3-noble' else 'off')

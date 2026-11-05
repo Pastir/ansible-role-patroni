@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.1.0 — 2026-11
+
+### Added
+- `patroni_watchdog_udev` (default `true`, unchanged behaviour). `false`: the udev rule for the watchdog device
+  is not created, changed or removed, and udev is not triggered. Independent of `patroni_watchdog_softdog`.
+- Input check: `postgresql_start_conf` (pastir.postgresql), when defined, must be `manual` while
+  `patroni_pg_start_conf_manual` is on.
+
+### Changed
+- `start.conf`: only the mode line is set to `manual` (`lineinfile`), the rest of the file is kept.
+
+### Fixed
+- The stock comments of `start.conf` were replaced with the role's own text (non-zero diff on existing servers).
+- `start.conf` was rewritten on every run when pastir.postgresql ran on the same host (different file text).
+
 ## 2.0.0 — 2026-11
 
 Rewrite: safe for clusters that are already running.

@@ -15,7 +15,8 @@ It is safe to run against a cluster that is already in production.
 - **A Patroni package upgrade** requires `patroni_allow_upgrade: true`. The cluster is put into maintenance mode
   (`pause`) first, so PostgreSQL keeps running while Patroni restarts.
 - **`start.conf` = `manual`** for every Debian cluster on the node, so systemd never starts PostgreSQL behind
-  Patroni's back.
+  Patroni's back. Only the mode line is changed; the stock comments of `pg_createcluster` stay (zero diff
+  on existing servers apart from the mode). See [start.conf and pastir.postgresql](#startconf-and-pastirpostgresql).
 - The config file is validated (`patroni --validate-config`) before it is written. It has mode `0600`,
   and diff output is disabled because the file contains passwords.
 
@@ -29,6 +30,26 @@ On every run the role reads `GET /config`. If anything in `patroni_dcs` differs,
 - To **delete** a key (e.g. an obsolete parameter), set it to `null`.
 - `pg_hba` is a list and is replaced as a whole.
 - `on`/`true`/`1` style differences are ignored when comparing.
+
+## start.conf and pastir.postgresql
+
+`pastir.postgresql` (`postgresql_start_conf`) manages the same line of the same file, also with `lineinfile`.
+On Patroni nodes set `postgresql_start_conf: manual`: both roles then produce the same file, and a repeated run
+reports no changes. If `postgresql_start_conf` is defined for the host (it is, whenever `pastir.postgresql` is in
+the same play, its default is `auto`) and is not `manual`, this role stops in the input checks instead of
+rewriting the file on every run. Set `patroni_pg_start_conf_manual: false` to leave `start.conf` alone.
+
+## Watchdog
+
+With `patroni_watchdog.mode` `automatic` or `required`:
+- `patroni_watchdog_softdog: true` loads the `softdog` kernel module (now and at boot);
+- `patroni_watchdog_udev: true` writes `/etc/udev/rules.d/61-patroni-watchdog.rules` (the device is owned by
+  the Patroni user) and runs `udevadm trigger`.
+
+The two switches are independent. Note that with `automatic` the udev rule may *enable* a watchdog that Patroni
+could not open before (the device was owned by root). If the device access is managed elsewhere, or you do not
+want that, set `patroni_watchdog_udev: false`: the role then neither creates, changes nor removes the rule and
+does not trigger udev.
 
 ## Requirements
 
@@ -66,10 +87,12 @@ On every run the role reads `GET /config`. If anything in `patroni_dcs` differs,
 | `patroni_dcs` | ttl/loop_wait/... | Dynamic configuration, see above |
 | `patroni_dcs_manage` | `true` | Keep the running configuration in sync |
 | `patroni_initdb` | UTF8, en_US.UTF-8, checksums | For a brand-new cluster |
-| `patroni_watchdog` | `{mode: off}` | `automatic`/`required` also loads softdog (`patroni_watchdog_softdog`) and sets up a udev rule |
+| `patroni_watchdog` | `{mode: off}` | `automatic`/`required` also loads softdog and sets up a udev rule, see [Watchdog](#watchdog) |
+| `patroni_watchdog_softdog` | `true` | Load the `softdog` module when the watchdog is enabled |
+| `patroni_watchdog_udev` | `true` | Write the udev rule for the watchdog device and trigger udev. `false`: do not touch the rule |
 | `patroni_tags` | `{}` | `nofailover`, `noloadbalance`, `clonefrom`, `nosync`... |
 | `patroni_config_overrides` | `{}` | Deep-merged into the generated config last |
-| `patroni_pg_start_conf_manual` | `true` | Force `start.conf` = `manual` |
+| `patroni_pg_start_conf_manual` | `true` | Set the mode line of every `start.conf` to `manual` (comments kept). Requires `postgresql_start_conf: manual` if that variable is defined |
 | `patroni_restart_pending` | `false` | Restart members with `pending_restart` (replicas first) |
 | `patroni_wait_timeout` | `600` | Seconds to wait for a member / leader |
 
@@ -133,7 +156,9 @@ system ID mismatch, run `patronictl reinit <scope> <member>` manually.
 
 `molecule test`: 3 nodes (Ubuntu 24.04 and 26.04), each running etcd + PostgreSQL 15 + Patroni. The test covers
 bootstrap, idempotence, DCS patch (change, delete, pg_hba) without restart, the pending-restart report, a local
-reload without restart or failover, and replication.
+reload without restart or failover, and replication. A stock Debian `start.conf` is managed by both
+`pastir.postgresql` and this role (idempotent, ends as `manual` with the comments kept). `pg3` runs with
+`watchdog.mode: automatic` and `patroni_watchdog_udev: false` (no udev rule is written).
 
 ## Installation
 

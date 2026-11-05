@@ -71,6 +71,16 @@ provisioner:
               - host all all 127.0.0.1/32 scram-sha-256
               - host replication replicator 0.0.0.0/0 scram-sha-256
               - host all all 0.0.0.0/0 scram-sha-256
+    host_vars:
+      # Watchdog enabled, but softdog and the udev rule are left to the host (patroni_watchdog_udev: false).
+      # "automatic" keeps Patroni running without a usable /dev/watchdog in the container.
+      pg3-noble:
+        patroni_watchdog:
+          mode: automatic
+          device: /dev/watchdog
+          safety_margin: 5
+        patroni_watchdog_softdog: false
+        patroni_watchdog_udev: false
 scenario:
   test_sequence:
     - dependency
