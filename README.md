@@ -57,7 +57,7 @@ does not trigger udev.
   `postgresql_create_main_cluster: false`, `postgresql_start_conf: manual`, `postgresql_manage_service: false`.
 - A reachable etcd v3 cluster (for example `pastir.etcd`).
 - All members in one play (`patroni_cluster_group`).
-- Collection `community.general` (only if the watchdog is enabled).
+- Collection `community.general` (only if the watchdog is enabled) (`requirements.yml` in the role root).
 
 ## Variables
 
@@ -168,10 +168,13 @@ roles:
   - name: pastir.patroni
     src: git+git@github.com:Pastir/ansible-role-patroni.git
     version: main  # or a tag
+# A role cannot install collections by itself: the project lists them (see requirements.yml in the role root).
+collections:
+  - name: community.general
 ```
 
 ```bash
-ansible-galaxy install -r requirements.yml
+ansible-galaxy install -r requirements.yml   # roles and collections
 ```
 
 ## License

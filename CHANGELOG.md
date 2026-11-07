@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.1.1 — 2026-11
+
+### Fixed
+- `ansible-galaxy role install` no longer fails with "Expected role dependencies to be a list": the collection
+  list moved from `meta/requirements.yml` (galaxy reads that file as role dependencies) to `requirements.yml` in the
+  role root. A role cannot install collections; the project lists them in its own `requirements.yml`
+  (see Installation in the README).
+
 ## 2.1.0 — 2026-11
 
 ### Added
